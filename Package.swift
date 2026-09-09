@@ -25,7 +25,9 @@ let x86VectorISA = ["-Xarch_x86_64", "-mavx2", "-Xarch_x86_64", "-mfma", "-Xarch
 let package = Package(
     name: "SwiftWhisper",
     products: [
-        .library(name: "SwiftWhisper", targets: ["SwiftWhisper"])
+        .library(name: "SwiftWhisper", targets: ["SwiftWhisper"]),
+        // The raw C API, for benches that time whisper_full directly (Halvox tools/whisper-bench).
+        .library(name: "whisper_cpp", targets: ["whisper_cpp"])
     ],
     targets: [
         .target(name: "SwiftWhisper", dependencies: [.target(name: "whisper_cpp")]),
