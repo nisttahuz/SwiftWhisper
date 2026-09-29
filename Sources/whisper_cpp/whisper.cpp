@@ -646,6 +646,7 @@ struct whisper_state {
     mutable std::mt19937 rng; // used for sampling at t > 0.0
 
     int lang_id = 0; // english by default
+    std::vector<float> lang_probs; // per language, from the auto-detection of the last whisper_full call; empty when the language was given
 
     std::string path_model; // populated by whisper_init_from_file()
 #ifdef WHISPER_USE_COREML
@@ -3893,6 +3894,7 @@ int whisper_full_with_state(
     auto & result_all = state->result_all;
 
     result_all.clear();
+    state->lang_probs.clear();
 
     // compute log mel spectrogram
     if (params.speed_up) {
@@ -3927,6 +3929,7 @@ int whisper_full_with_state(
             return -3;
         }
         state->lang_id = lang_id;
+        state->lang_probs = probs;
         params.language = whisper_lang_str(lang_id);
 
         fprintf(stderr, "%s: auto-detected language: %s (p = %f)\n", __func__, params.language, probs[whisper_lang_id(params.language)]);
@@ -4759,6 +4762,11 @@ int whisper_full_lang_id_from_state(struct whisper_state * state) {
 
 int whisper_full_lang_id(struct whisper_context * ctx) {
     return ctx->state->lang_id;
+}
+
+float whisper_full_lang_prob(struct whisper_context * ctx, int lang_id) {
+    const auto & probs = ctx->state->lang_probs;
+    return lang_id >= 0 && lang_id < (int) probs.size() ? probs[lang_id] : 0.0f;
 }
 
 int64_t whisper_full_get_segment_t0_from_state(struct whisper_state * state, int i_segment) {

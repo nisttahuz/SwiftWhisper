@@ -447,6 +447,10 @@ extern "C" {
     // Language id associated with the context's default state
     WHISPER_API int whisper_full_lang_id(struct whisper_context * ctx);
 
+    // How likely the last whisper_full call found each language when it detected
+    // the language itself (language "auto"). 0 when the language was given.
+    WHISPER_API float whisper_full_lang_prob(struct whisper_context * ctx, int lang_id);
+
     // Language id associated with the provided state
     WHISPER_API int whisper_full_lang_id_from_state(struct whisper_state * state);
 

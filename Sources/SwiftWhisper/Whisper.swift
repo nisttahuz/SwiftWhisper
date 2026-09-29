@@ -1,6 +1,17 @@
 import Foundation
 import whisper_cpp
 
+/// A language whisper heard, by its code ("en", "es"), and how sure it is.
+public struct DetectedLanguage: Equatable, Sendable {
+    public let language: String
+    public let probability: Float
+
+    public init(language: String, probability: Float) {
+        self.language = language
+        self.probability = probability
+    }
+}
+
 public class Whisper {
     private let whisperContext: OpaquePointer
     private var unmanagedSelf: Unmanaged<Whisper>?
@@ -8,6 +19,17 @@ public class Whisper {
     public var delegate: WhisperDelegate?
     public var params: WhisperParams
     public private(set) var inProgress = false
+
+    /// What whisper heard in the last transcription when it detected the
+    /// language itself, likeliest first. Empty when the language was given.
+    public private(set) var detectedLanguages: [DetectedLanguage] = []
+
+    /// Asked once per transcription, after whisper has detected the language and
+    /// before it decodes. Return false and the transcription ends there with no
+    /// segments, having cost the encoder pass alone. Not asked when the language
+    /// was given. Called off the main thread.
+    public var shouldDecode: (@Sendable ([DetectedLanguage]) -> Bool)?
+    private var askedToDecode = false
 
     internal var frameCount: Int? // For progress calculation (value not in `whisper_state` yet)
     internal var cancelCallback: (() -> Void)?
@@ -81,6 +103,12 @@ public class Whisper {
                 return false
             }
 
+            if let shouldDecode = whisper.shouldDecode, !whisper.askedToDecode {
+                whisper.askedToDecode = true
+                let heard = whisper.readDetectedLanguages()
+                if !heard.isEmpty, !shouldDecode(heard) { return false }
+            }
+
             return true
         }
 
@@ -94,6 +122,14 @@ public class Whisper {
                 whisper.delegate?.whisper(whisper, didUpdateProgress: Double(progress) / 100)
             }
         }
+    }
+
+    private func readDetectedLanguages() -> [DetectedLanguage] {
+        (0...whisper_lang_max_id()).compactMap { id -> DetectedLanguage? in
+            let probability = whisper_full_lang_prob(whisperContext, id)
+            guard probability > 0, let code = whisper_lang_str(id) else { return nil }
+            return DetectedLanguage(language: String(cString: code), probability: probability)
+        }.sorted { $0.probability > $1.probability }
     }
 
     private func cleanupCallbacks() {
@@ -122,9 +158,11 @@ public class Whisper {
 
         inProgress = true
         frameCount = audioFrames.count
+        askedToDecode = false
 
         DispatchQueue.global(qos: .userInitiated).async {
             whisper_full(self.whisperContext, self.params.whisperParams, audioFrames, Int32(audioFrames.count))
+            self.detectedLanguages = self.readDetectedLanguages()
 
             let segmentCount = whisper_full_n_segments(self.whisperContext)
 
