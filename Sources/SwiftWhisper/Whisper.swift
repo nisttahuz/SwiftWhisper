@@ -160,8 +160,16 @@ public class Whisper {
         frameCount = audioFrames.count
         askedToDecode = false
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            whisper_full(self.whisperContext, self.params.whisperParams, audioFrames, Int32(audioFrames.count))
+        // The call keeps its own copy of the language. Setting `params.language`
+        // frees the string it replaces, and whisper reads the pointer while it
+        // runs, so a caller that set it meanwhile had whisper read freed memory.
+        var callParams = params.whisperParams
+        let language = strdup(callParams.language)
+        callParams.language = UnsafePointer(language)
+
+        DispatchQueue.global(qos: .userInitiated).async { [callParams] in
+            whisper_full(self.whisperContext, callParams, audioFrames, Int32(audioFrames.count))
+            free(language)
             self.detectedLanguages = self.readDetectedLanguages()
 
             let segmentCount = whisper_full_n_segments(self.whisperContext)
@@ -183,7 +191,15 @@ public class Whisper {
                 )
             }
 
-            if let cancelCallback = self.cancelCallback {
+            // Free for the next call before this one reports: a caller that
+            // starts the next transcription from the completion handler could
+            // arrive while `inProgress` was still set and be refused as busy.
+            let cancelCallback = self.cancelCallback
+            self.frameCount = nil
+            self.cancelCallback = nil
+            self.inProgress = false
+
+            if let cancelCallback = cancelCallback {
                 DispatchQueue.main.async {
                     // Should cancel callback be called after delegate and completionHandler?
                     cancelCallback()
@@ -199,10 +215,6 @@ public class Whisper {
                     wrappedCompletionHandler(.success(segments))
                 }
             }
-
-            self.frameCount = nil
-            self.cancelCallback = nil
-            self.inProgress = false
         }
     }
 
